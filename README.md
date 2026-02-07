@@ -115,49 +115,8 @@ A session produces an array of minute-level samples:
   All exported artifacts are shared explicitly by the user. You retain full control over when, where, and how the data is transferred or stored.
 
 
-```markdown
-# 🎤 AI Presentation Feedback System
-
-An end-to-end presentation coaching pipeline that analyzes recorded presentation videos and generates automated feedback using:
-
-- 📱 Mobile attention tracking (face/engagement logs)
-- 🎬 Low-attention clip extraction
-- 🖼 Vision-Language Model (Qwen2-VL via LM Studio)
-- 🖥 Gradio demo interface
-
-This system provides post-presentation feedback on:
-
-- Attention trends  
-- Low-engagement moments  
-- Visual posture / gaze behavior  
-- Overall delivery quality  
-
 ---
-
-# 📌 System Overview
-
-## Workflow
-
-```
-
-Phone App
-↓
-presentation_whole.mp4
-presentation_self.json
-↓
-PC Pipeline
-↓
-Low-attention clip extraction
-↓
-Frame grid generation
-↓
-Vision-Language Model (Qwen2-VL)
-↓
-AI feedback
-
-```
-
----
+## 🎤 Feedback from the PC
 
 # 📁 Project Structure
 
