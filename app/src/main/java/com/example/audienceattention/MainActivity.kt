@@ -644,7 +644,7 @@ class FaceTracker(
     private val tracks = mutableMapOf<Int, TrackedFace>()
 
     fun update(faces: List<Face>, nowMs: Long): List<TrackedFace> {
-        // TTL 지난 트랙 제거
+        // remove previous TTL track
         val expired = tracks.values.filter { nowMs - it.lastSeenMs > ttlMs }.map { it.id }
         expired.forEach { tracks.remove(it) }
 
