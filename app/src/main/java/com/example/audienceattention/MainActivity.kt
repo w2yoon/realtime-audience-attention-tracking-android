@@ -86,43 +86,43 @@ fun DualCameraSessionScreen() {
     val lifecycleOwner = LocalLifecycleOwner.current
 
     // --- states ---
-    val audienceAnalyzer = remember { AudienceAnalyzer() } // 너의 기존 Analyzer 사용
+    val audienceAnalyzer = remember { AudienceAnalyzer() } // using previous analyzer
 
     var metrics by remember { mutableStateOf(CrowdMetrics.empty()) }
     var overlays by remember { mutableStateOf<List<FaceOverlay>>(emptyList()) }
     var statusText by remember { mutableStateOf("Initializing...") }
     var calibState by remember { mutableStateOf(audienceAnalyzer.getCalibrationState()) }
 
-    // 로그 저장
+    // logging
     val logs = remember { mutableStateListOf<AttentionLogEntry>() }
 
-    // 세션/녹화 상태
+    // session / recording status
     var sessionRunning by remember { mutableStateOf(false) }
     var recording by remember { mutableStateOf<Recording?>(null) }
     var lastVideoUri by remember { mutableStateOf<Uri?>(null) }
     var lastJsonUri by remember { mutableStateOf<Uri?>(null) }
     var pendingShare by remember { mutableStateOf(false) }
 
-    // 동시 카메라 가능 여부(녹화 bind 성공 시 true로 세팅)
+    // check if the both camera works simultaneously(set as true if the recording bind success)
     var frontRecordingAvailable by remember { mutableStateOf(false) }
 
-    // PreviewView(후면 표시)
+    // PreviewView
     val rearPreviewView = remember {
-        PreviewView(context).apply { scaleType = PreviewView.ScaleType.FIT_CENTER } // 데모에서 bbox 정합이 더 쉬움
+        PreviewView(context).apply { scaleType = PreviewView.ScaleType.FIT_CENTER } // bbox alignment is way easier on demo
     }
 
-    // 단일 executor
+    // single executor
     val cameraExecutor = remember { Executors.newSingleThreadExecutor() }
 
-    // 전면 녹화 유스케이스
+    // usecase for front camera recording
     val recorder = remember {
         Recorder.Builder()
-            .setQualitySelector(QualitySelector.from(Quality.HD)) // 720p~HD 권장
+            .setQualitySelector(QualitySelector.from(Quality.HD)) // 720p~HD is recommended
             .build()
     }
     val videoCapture = remember { VideoCapture.withOutput(recorder) }
 
-    // --- 1분마다 로그 기록: sessionRunning일 때만 ---
+    // --- logging every 1 min: only when sessionRunning ---
     LaunchedEffect(sessionRunning) {
         while (sessionRunning) {
             delay(60_000L)
@@ -137,7 +137,7 @@ fun DualCameraSessionScreen() {
         }
     }
 
-    // --- 카메라 bind: 한 번만 ---
+    // --- camera bind: just once ---
     LaunchedEffect(Unit) {
         val cameraProvider = ProcessCameraProvider.getInstance(context).get()
 
@@ -172,12 +172,12 @@ fun DualCameraSessionScreen() {
             }
         }
 
-        // front videoCapture는 이미 remember { VideoCapture.withOutput(recorder) } 로 생성되어 있다고 가정
+        // suppose front videoCapture is already generated as remember { VideoCapture.withOutput(recorder) }
 
         try {
             cameraProvider.unbindAll()
 
-            // ====== 동시카메라 지원 확인 (front+back 세트 찾기) ======
+            // ====== check the supports for activating the both camera (finding the set of front+back) ======
             var frontSelector: CameraSelector? = null
             var backSelector: CameraSelector? = null
 
@@ -192,7 +192,7 @@ fun DualCameraSessionScreen() {
             }
 
             if (frontSelector == null || backSelector == null) {
-                // ====== 동시카메라 미지원: 후면만 ======
+                // ====== simultaneous function not supported: only rear ======
                 cameraProvider.bindToLifecycle(
                     lifecycleOwner,
                     CameraSelector.DEFAULT_BACK_CAMERA,
@@ -204,7 +204,7 @@ fun DualCameraSessionScreen() {
                 return@LaunchedEffect
             }
 
-            // ====== 동시카메라 지원: ConcurrentCamera로 bind ======
+            // ====== simultaneous function supported: bind via ConcurrentCamera ======
             val rearGroup = androidx.camera.core.UseCaseGroup.Builder()
                 .addUseCase(rearPreview)
                 .addUseCase(analysis)
@@ -259,7 +259,7 @@ fun DualCameraSessionScreen() {
             factory = { rearPreviewView }
         )
 
-        // Face bbox overlay (데모용): FIT_CENTER 기준 근사 매핑
+        // Face bbox overlay (for): approximately mapping based on FIT_CENTER
         Canvas(modifier = Modifier.fillMaxSize()) {
             val native = drawContext.canvas.nativeCanvas
 
@@ -284,12 +284,12 @@ fun DualCameraSessionScreen() {
             val vh = size.height
 
             overlays.forEach { fo ->
-                // overlays에 imgW/imgH가 있다고 가정 (없으면 너의 FaceOverlay에 추가해줘)
+                // suppose imgW/imgH already exists in overlays (if not, add to your FaceOverlay)
                 val iw = fo.imgW
                 val ih = fo.imgH
                 if (iw <= 0 || ih <= 0) return@forEach
 
-                // FIT_CENTER 매핑 (레터박스)
+                // FIT_CENTER mapping (letter box)
                 val scale = min(vw / iw.toFloat(), vh / ih.toFloat())
                 val dx = (vw - iw * scale) / 2f
                 val dy = (vh - ih * scale) / 2f
@@ -423,7 +423,7 @@ private fun startFrontRecording(
         MediaStore.Video.Media.EXTERNAL_CONTENT_URI
     ).setContentValues(values).build()
 
-    // NOTE: 오디오까지 원하면 .withAudioEnabled() 를 켜고 RECORD_AUDIO 권한 필요
+    // NOTE: if you want audio, turn on .withAudioEnabled() + authorization for RECORD_AUDIO is required
     return videoCapture.output
         .prepareRecording(context, outputOptions)
         .withAudioEnabled()
@@ -485,7 +485,7 @@ private fun writeLogsToJson(context: Context, logs: List<AttentionLogEntry>): Ur
 
         file.outputStream().use { it.write(jsonBytes) }
 
-        // FileProvider 없이도 ACTION_SEND 가능 (같은 앱 내부 URI)
+        // ACTION_SEND is possible without FileProvider (same app in URI)
         androidx.core.content.FileProvider.getUriForFile(
             context,
             "${context.packageName}.fileprovider",
