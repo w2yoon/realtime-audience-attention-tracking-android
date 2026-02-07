@@ -303,3 +303,5 @@ sudo apt install ffmpeg
 * Attention visualization graph in UI
 
 ---
+
+## Note!: the video in the outmost directory, it is the self-recording video during the presentation!
