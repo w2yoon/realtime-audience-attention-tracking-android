@@ -68,7 +68,51 @@ A session produces an array of minute-level samples:
     "confidence": 0.82
   }
 ]
+```
+* tsMs: timestamp in milliseconds (device time)
 
+* score100_1min: crowd attention score (0–100) averaged over the last minute
+
+* faces: number of tracked faces at sampling time
+
+* confidence: heuristic confidence (based on face count + face quality)
+
+---
+## Demo UI (what you see on screen)
+
+* Attention X (1m): rolling one-minute attention score (0–100)
+
+* faces=N: number of faces currently tracked
+
+* conf=Y: confidence indicator (0–1)
+
+* per-face overlay (optional): bounding box + small text showing ID and per-person attention score
+
+---
+## Requirements
+
+- Android device with CameraX support
+
+- Android Studio (recommended)
+
+- Permissions: `CAMERA`, `RECORD_AUDIO`
+
+---
+## Privacy
+
+- **On-device processing only**  
+  All audience video frames are processed locally on the device for attention inference. No raw frames or face data are sent to external servers.
+
+- **No cloud dependency**  
+  Attention tracking does not require any cloud-based processing or network connectivity.
+
+- **Limited export scope**  
+  The system only exports:
+  - **Attention JSON logs** containing aggregated, time-stamped attention metrics  
+  - **Presenter video** (optional), recorded solely from the presenter-facing camera
+
+- **User-controlled data sharing**  
+  All exported artifacts are shared explicitly by the user. You retain full control over when, where, and how the data is transferred or stored.
 
 
 ```markdown
