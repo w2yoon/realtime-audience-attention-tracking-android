@@ -10,10 +10,6 @@ to objectively measure audience engagement without invasive tracking.
 
 
 
-Perfect — here is the clean **raw Markdown version**.
-You can copy-paste this directly into `README.md`.
-
----
 
 ```markdown
 # 🎤 AI Presentation Feedback System
