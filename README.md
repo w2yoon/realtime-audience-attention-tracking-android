@@ -154,42 +154,6 @@ presentation_whole.mp4
 
 presentation_self.json
 
-````
-
-### JSON Structure
-
-```json
-[
-  {
-    "tsMs": 0,
-    "score100_1min": 88,
-    "faces": 1,
-    "confidence": 0.95
-  },
-  {
-    "tsMs": 30000,
-    "score100_1min": 85,
-    "faces": 1,
-    "confidence": 0.93
-  }
-]
-````
-
-### Fields
-
-| Field           | Description               |
-| --------------- | ------------------------- |
-| `tsMs`          | Timestamp in milliseconds |
-| `score100_1min` | Attention score (0–100)   |
-| `faces`         | Number of detected faces  |
-| `confidence`    | Detection confidence      |
-
-The PC pipeline automatically converts:
-
-* `tsMs → timestamp (seconds)`
-* `score100_1min → attention_score`
-
----
 
 # 🎬 Step 1: Extract Low-Attention Clips
 
