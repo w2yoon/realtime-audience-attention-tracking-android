@@ -269,16 +269,6 @@ sudo apt install ffmpeg
 
 ---
 
-# 🧪 Demo Mode
-
-For testing without phone:
-
-1. Generate synthetic attention JSON
-2. Use any presentation video
-3. Run pipeline
-
----
-
 # 🚀 Future Improvements
 
 * Real-time feedback mode
@@ -307,22 +297,4 @@ PC Backend
 AI Feedback
          ↓
 Gradio UI
-```
-
----
-
-# 🎯 Goal
-
-Provide accessible, AI-powered presentation coaching that:
-
-* Identifies weak engagement moments
-* Analyzes non-verbal cues
-* Offers actionable improvement advice
-* Works entirely offline (local VLM)
-
-```
-
----
-
-If you later want a cleaner GitHub-style version without emojis (more professional), I can rewrite it in a minimal engineering tone as well.
 ```
