@@ -1,13 +1,73 @@
-# Audience Attention Estimation (Android Demo)
+# Real-time Audience Attention Tracking & AI Presentation Feedback
 
-An on-device Android demo that estimates **audience attention** in real time using
-CameraX + ML Kit Face Detection.
+A mobile, **on-device** system that helps speakers understand **audience attention in real time**—without sending faces or frames to the cloud—then enables **post-session AI presentation feedback** using a recorded presenter video and time-aligned attention logs.
 
-The system is designed for **presentation / demo scenarios**, where a presenter wants
-to objectively measure audience engagement without invasive tracking.
+---
 
+## Why this project
 
+When presenting, it’s hard to tell whether the room is engaged. This project provides:
 
+1. **Real-time audience attention tracking (rear camera, on-device)**
+   - Detects faces and estimates attention signals (head pose + eye openness).
+   - Aggregates engagement into a **minute-level attention score**.
+   - Runs **fully on-device** to reduce privacy risks (no cloud inference, no data upload required).
+
+2. **AI presentation feedback (front camera recording, post-processing)**
+   - Optionally records the presenter (front camera) during the session.
+   - Saves **time-stamped attention scores** (JSON).
+   - After the session, the presenter video + attention timeline can be analyzed to generate actionable feedback
+     (e.g., where engagement dropped, pacing/sections to improve).
+
+---
+
+## Key Features
+
+- **On-device face detection** using Google ML Kit
+- **Per-person attention estimation** (smoothed over time)
+- **Crowd-level attention score** (rolling 1-minute window)
+- **Session logging**: attention score + metadata saved as JSON with timestamps
+- **Export/sharing**: share JSON (and presenter video when available) to a PC for further analysis
+- **Privacy-first design**: audience frames are processed locally and not stored by default
+
+---
+
+## How it works (high level)
+
+### Rear camera (Audience)
+1. Rear camera frames → ML Kit face detection  
+2. Each detected face → attention score:
+   - Head pose deviation (yaw/pitch)
+   - Eye openness / eye drop
+   - Temporal smoothing (EMA)
+3. Per-frame crowd mean score → stored into a rolling 1-minute buffer  
+4. Output:
+   - `Attention 0–100 (1m)` score
+   - number of faces (`nFaces`)
+   - confidence estimate (`confidence`)
+   - optional face overlays (bbox + per-face score) for demo/debug
+
+### Front camera (Presenter)
+- Records the presenter video during the session (device capability dependent).
+- At stop, exports:
+  - `presenter_<timestamp>.mp4`
+  - `attention_<timestamp>.json`
+
+---
+
+## Output Format (JSON)
+
+A session produces an array of minute-level samples:
+
+```json
+[
+  {
+    "tsMs": 1730000000000,
+    "score100_1min": 74,
+    "faces": 5,
+    "confidence": 0.82
+  }
+]
 
 
 
