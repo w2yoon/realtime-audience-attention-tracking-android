@@ -303,22 +303,3 @@ sudo apt install ffmpeg
 * Attention visualization graph in UI
 
 ---
-
-# 🏗 Architecture Diagram
-
-```
-Phone App
-   ├── Video Recording
-   ├── Face Tracking
-   └── Attention Scoring
-         ↓
-PC Backend
-   ├── Low Attention Detection
-   ├── Clip Extraction
-   ├── Frame Grid Generation
-   └── Vision-Language Model
-         ↓
-AI Feedback
-         ↓
-Gradio UI
-```
