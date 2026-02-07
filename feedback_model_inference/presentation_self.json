@@ -1,0 +1,62 @@
+[
+  {
+    "tsMs": 0,
+    "score100_1min": 88,
+    "faces": 1,
+    "confidence": 0.95
+  },
+  {
+    "tsMs": 30000,
+    "score100_1min": 85,
+    "faces": 1,
+    "confidence": 0.93
+  },
+  {
+    "tsMs": 60000,
+    "score100_1min": 80,
+    "faces": 1,
+    "confidence": 0.90
+  },
+  {
+    "tsMs": 90000,
+    "score100_1min": 74,
+    "faces": 1,
+    "confidence": 0.87
+  },
+  {
+    "tsMs": 120000,
+    "score100_1min": 68,
+    "faces": 1,
+    "confidence": 0.84
+  },
+  {
+    "tsMs": 150000,
+    "score100_1min": 62,
+    "faces": 1,
+    "confidence": 0.80
+  },
+  {
+    "tsMs": 180000,
+    "score100_1min": 70,
+    "faces": 1,
+    "confidence": 0.86
+  },
+  {
+    "tsMs": 210000,
+    "score100_1min": 78,
+    "faces": 1,
+    "confidence": 0.90
+  },
+  {
+    "tsMs": 240000,
+    "score100_1min": 86,
+    "faces": 1,
+    "confidence": 0.94
+  },
+  {
+    "tsMs": 270000,
+    "score100_1min": 92,
+    "faces": 1,
+    "confidence": 0.97
+  }
+]
