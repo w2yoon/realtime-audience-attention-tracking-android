@@ -605,10 +605,10 @@ class AudienceAnalyzer {
 
                 val metrics = aggregator.update(people, nowMs)
 
-                // id -> PersonState 매핑
+                // id -> PersonState mappint
                 val byId = people.associateBy { it.id }
 
-                // 얼굴별 overlay 만들기 (bbox + 점수)
+                // making face overlay (bbox + score)
                 val overlays = tracked.mapNotNull { tf ->
                     val ps = byId[tf.id] ?: return@mapNotNull null
                     FaceOverlay(
@@ -872,7 +872,7 @@ class AttentionEstimatorWithCalibration(
         val downFactor = 1f - downPenaltyStrength * timePenalty(downSec[id]!!, graceDownSec, fullDownSec)
         val eyesFactor = 1f - eyesPenaltyStrength * timePenalty(eyesLowSec[id]!!, graceEyesSec, fullEyesSec)
 
-        val wEye = (0.15f + 0.35f * q).coerceIn(0.15f, 0.50f)  // 멀면 eye 비중 낮춤
+        val wEye = (0.15f + 0.35f * q).coerceIn(0.15f, 0.50f)  // if it is far, make the eye weight lower
         val wPose = 1f - wEye
         val base = wPose * sPose + wEye * sEye
         // val base = 0.65f * sPose + 0.35f * sEye
