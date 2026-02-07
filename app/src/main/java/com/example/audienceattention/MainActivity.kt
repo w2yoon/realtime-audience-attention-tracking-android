@@ -1,56 +1,78 @@
 package com.example.audienceattention
 
 import android.Manifest
-import android.graphics.RectF
 import android.graphics.Rect
+import android.content.ContentValues
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
+import android.provider.MediaStore
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.core.CameraSelector
+import androidx.camera.core.ConcurrentCamera
+import androidx.camera.core.UseCaseGroup
 import androidx.camera.core.ExperimentalGetImage
 import androidx.camera.core.ImageAnalysis
-import androidx.camera.core.ImageProxy
 import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
+import androidx.camera.video.MediaStoreOutputOptions
+import androidx.camera.video.Quality
+import androidx.camera.video.QualitySelector
+import androidx.camera.video.Recorder
+import androidx.camera.video.Recording
+import androidx.camera.video.VideoCapture
+import androidx.camera.video.VideoRecordEvent
 import androidx.camera.view.PreviewView
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.*
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Button
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
-import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.platform.LocalContext
-import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.content.ContextCompat
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.example.audienceattention.ui.theme.AudienceAttentionTheme
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.face.*
+import kotlinx.coroutines.delay
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
-import kotlin.math.abs
+import kotlin.math.ceil
 import kotlin.math.max
 import kotlin.math.min
-import kotlin.math.ceil
-
+import kotlin.math.abs
+import androidx.camera.core.resolutionselector.ResolutionSelector
+import androidx.camera.core.resolutionselector.ResolutionStrategy
+import androidx.camera.core.resolutionselector.AspectRatioStrategy
+import android.util.Size
 
 class MainActivity : ComponentActivity() {
 
-    private val requestCameraPermission = registerForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { /* granted -> UI에서 알아서 처리 */ }
+    private val requestPermissions =
+        registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { granted ->
+        }
     @ExperimentalGetImage
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        requestCameraPermission.launch(Manifest.permission.CAMERA)
+        requestPermissions.launch(
+            arrayOf(
+                Manifest.permission.CAMERA,
+                Manifest.permission.RECORD_AUDIO
+            )
+        )
 
         setContent {
             AudienceAttentionTheme {
-                CameraPreviewScreen()
+                DualCameraSessionScreen()
             }
         }
     }
@@ -59,40 +81,86 @@ class MainActivity : ComponentActivity() {
 
 @ExperimentalGetImage
 @Composable
-fun CameraPreviewScreen() {
+fun DualCameraSessionScreen() {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
 
-    // ===== UI state =====
+    // --- states ---
+    val audienceAnalyzer = remember { AudienceAnalyzer() } // 너의 기존 Analyzer 사용
+
     var metrics by remember { mutableStateOf(CrowdMetrics.empty()) }
     var overlays by remember { mutableStateOf<List<FaceOverlay>>(emptyList()) }
-    var statusText by remember { mutableStateOf("Camera starting...") }
-
-    val audienceAnalyzer = remember { AudienceAnalyzer() }
+    var statusText by remember { mutableStateOf("Initializing...") }
     var calibState by remember { mutableStateOf(audienceAnalyzer.getCalibrationState()) }
 
-    // ===== PreviewView (single instance) =====
-    val previewView = remember {
-        PreviewView(context).apply { scaleType = PreviewView.ScaleType.FILL_CENTER }
+    // 로그 저장
+    val logs = remember { mutableStateListOf<AttentionLogEntry>() }
+
+    // 세션/녹화 상태
+    var sessionRunning by remember { mutableStateOf(false) }
+    var recording by remember { mutableStateOf<Recording?>(null) }
+    var lastVideoUri by remember { mutableStateOf<Uri?>(null) }
+    var lastJsonUri by remember { mutableStateOf<Uri?>(null) }
+    var pendingShare by remember { mutableStateOf(false) }
+
+    // 동시 카메라 가능 여부(녹화 bind 성공 시 true로 세팅)
+    var frontRecordingAvailable by remember { mutableStateOf(false) }
+
+    // PreviewView(후면 표시)
+    val rearPreviewView = remember {
+        PreviewView(context).apply { scaleType = PreviewView.ScaleType.FIT_CENTER } // 데모에서 bbox 정합이 더 쉬움
     }
 
-    // ===== Single executor (avoid leaks / repeated creation) =====
+    // 단일 executor
     val cameraExecutor = remember { Executors.newSingleThreadExecutor() }
 
-    // ===== Bind camera ONCE =====
-    LaunchedEffect(previewView) {
+    // 전면 녹화 유스케이스
+    val recorder = remember {
+        Recorder.Builder()
+            .setQualitySelector(QualitySelector.from(Quality.HD)) // 720p~HD 권장
+            .build()
+    }
+    val videoCapture = remember { VideoCapture.withOutput(recorder) }
+
+    // --- 1분마다 로그 기록: sessionRunning일 때만 ---
+    LaunchedEffect(sessionRunning) {
+        while (sessionRunning) {
+            delay(60_000L)
+            logs.add(
+                AttentionLogEntry(
+                    tsMs = System.currentTimeMillis(),
+                    score1min = metrics.score1min,
+                    faces = metrics.nFaces,
+                    confidence = metrics.confidence
+                )
+            )
+        }
+    }
+
+    // --- 카메라 bind: 한 번만 ---
+    LaunchedEffect(Unit) {
         val cameraProvider = ProcessCameraProvider.getInstance(context).get()
 
-        val preview = Preview.Builder()
+        val rearPreview = Preview.Builder()
             .setTargetAspectRatio(androidx.camera.core.AspectRatio.RATIO_16_9)
             .build()
-            .also { p ->
-            p.setSurfaceProvider(previewView.surfaceProvider)
-        }
+            .also { it.setSurfaceProvider(rearPreviewView.surfaceProvider) }
+
+        val resolutionSelector = ResolutionSelector.Builder()
+            .setAspectRatioStrategy(AspectRatioStrategy.RATIO_16_9_FALLBACK_AUTO_STRATEGY)
+            // Prefer 720p, but fall back safely if not supported
+            .setResolutionStrategy(
+                ResolutionStrategy(
+                    Size(1280, 720),
+                    ResolutionStrategy.FALLBACK_RULE_CLOSEST_LOWER_THEN_HIGHER
+                )
+            )
+            .build()
 
         val analysis = ImageAnalysis.Builder()
             .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
-            .setTargetAspectRatio(androidx.camera.core.AspectRatio.RATIO_16_9)
+//            .setTargetAspectRatio(androidx.camera.core.AspectRatio.RATIO_16_9)
+            .setResolutionSelector(resolutionSelector)
             .build()
 
         analysis.setAnalyzer(cameraExecutor) { imageProxy ->
@@ -100,40 +168,98 @@ fun CameraPreviewScreen() {
                 metrics = m
                 overlays = ov
                 calibState = audienceAnalyzer.getCalibrationState()
-                statusText = "Running (rear) | faces=${m.nFaces} | conf=${"%.2f".format(m.confidence)}"
+                statusText = "Rear analyzing | faces=${m.nFaces} conf=${"%.2f".format(m.confidence)}"
             }
         }
 
+        // front videoCapture는 이미 remember { VideoCapture.withOutput(recorder) } 로 생성되어 있다고 가정
+
         try {
             cameraProvider.unbindAll()
-            cameraProvider.bindToLifecycle(
-                lifecycleOwner,
-                CameraSelector.DEFAULT_BACK_CAMERA,
-                preview,
-                analysis
+
+            // ====== 동시카메라 지원 확인 (front+back 세트 찾기) ======
+            var frontSelector: CameraSelector? = null
+            var backSelector: CameraSelector? = null
+
+            for (pair in cameraProvider.availableConcurrentCameraInfos) {
+                val hasFront = pair.any { it.lensFacing == CameraSelector.LENS_FACING_FRONT }
+                val hasBack = pair.any { it.lensFacing == CameraSelector.LENS_FACING_BACK }
+                if (hasFront && hasBack) {
+                    frontSelector = pair.first { it.lensFacing == CameraSelector.LENS_FACING_FRONT }.cameraSelector
+                    backSelector = pair.first { it.lensFacing == CameraSelector.LENS_FACING_BACK }.cameraSelector
+                    break
+                }
+            }
+
+            if (frontSelector == null || backSelector == null) {
+                // ====== 동시카메라 미지원: 후면만 ======
+                cameraProvider.bindToLifecycle(
+                    lifecycleOwner,
+                    CameraSelector.DEFAULT_BACK_CAMERA,
+                    rearPreview,
+                    analysis
+                )
+                frontRecordingAvailable = false
+                statusText = "Rear analyzing | Concurrent(front+back) not supported"
+                return@LaunchedEffect
+            }
+
+            // ====== 동시카메라 지원: ConcurrentCamera로 bind ======
+            val rearGroup = androidx.camera.core.UseCaseGroup.Builder()
+                .addUseCase(rearPreview)
+                .addUseCase(analysis)
+                .build()
+
+            val frontGroup = androidx.camera.core.UseCaseGroup.Builder()
+                .addUseCase(videoCapture)
+                .build()
+
+            val rearConfig = ConcurrentCamera.SingleCameraConfig(
+                backSelector!!,
+                rearGroup,
+                lifecycleOwner
             )
-            statusText = "Camera running (rear)"
+
+            val frontConfig = ConcurrentCamera.SingleCameraConfig(
+                frontSelector!!,
+                frontGroup,
+                lifecycleOwner
+            )
+
+            cameraProvider.bindToLifecycle(listOf(rearConfig, frontConfig))
+
+            frontRecordingAvailable = true
+            statusText = "Rear analyzing + Front ready (Concurrent)"
+
         } catch (e: Exception) {
+            frontRecordingAvailable = false
             statusText = "Camera bind failed: ${e.message}"
         }
     }
 
-    // Optional: shutdown executor when composable leaves composition (demo hygiene)
     DisposableEffect(Unit) {
-        onDispose {
-            cameraExecutor.shutdown()
+        onDispose { cameraExecutor.shutdown() }
+    }
+
+    // --- share pending when video finalize arrives ---
+    LaunchedEffect(lastVideoUri, lastJsonUri, pendingShare) {
+        if (pendingShare && lastVideoUri != null && lastJsonUri != null) {
+            shareFiles(context, listOf(lastVideoUri!!, lastJsonUri!!))
+            pendingShare = false
         }
     }
 
+    /* ===================== UI ===================== */
+
     Box(modifier = Modifier.fillMaxSize()) {
 
-        // ===== Camera Preview =====
+        // Rear Preview
         AndroidView(
             modifier = Modifier.fillMaxSize(),
-            factory = { previewView }
+            factory = { rearPreviewView }
         )
 
-        // ===== Face overlay =====
+        // Face bbox overlay (데모용): FIT_CENTER 기준 근사 매핑
         Canvas(modifier = Modifier.fillMaxSize()) {
             val native = drawContext.canvas.nativeCanvas
 
@@ -158,16 +284,22 @@ fun CameraPreviewScreen() {
             val vh = size.height
 
             overlays.forEach { fo ->
-                if (fo.imgW <= 0 || fo.imgH <= 0) return@forEach
-                // PreviewView.ScaleType.FILL_CENTER (center-crop) 대응 보정
-                val scale = max(vw / fo.imgW.toFloat(), vh / fo.imgH.toFloat())
-                val dx = (vw - fo.imgW * scale) / 2f
-                val dy = (vh - fo.imgH * scale) / 2f
-                val r = RectF(fo.bbox)
+                // overlays에 imgW/imgH가 있다고 가정 (없으면 너의 FaceOverlay에 추가해줘)
+                val iw = fo.imgW
+                val ih = fo.imgH
+                if (iw <= 0 || ih <= 0) return@forEach
+
+                // FIT_CENTER 매핑 (레터박스)
+                val scale = min(vw / iw.toFloat(), vh / ih.toFloat())
+                val dx = (vw - iw * scale) / 2f
+                val dy = (vh - ih * scale) / 2f
+
+                val r = android.graphics.RectF(fo.bbox)
                 r.left = r.left * scale + dx
                 r.right = r.right * scale + dx
                 r.top = r.top * scale + dy
                 r.bottom = r.bottom * scale + dy
+
                 native.drawRect(r, stroke)
 
                 val label = "ID ${fo.id}  ${fo.score100}"
@@ -185,55 +317,199 @@ fun CameraPreviewScreen() {
             }
         }
 
-        // ===== UI Overlay =====
+        // Top Overlay UI
         Column(
             modifier = Modifier
                 .align(Alignment.TopCenter)
-                .padding(top = 18.dp)
+                .padding(top = 16.dp)
         ) {
             Text(
                 text = "Attention ${metrics.score1min} (1m)",
                 style = MaterialTheme.typography.titleLarge
             )
             Text(
-                text = "faces=${metrics.nFaces}  conf=${"%.2f".format(metrics.confidence)}",
+                text = "faces=${metrics.nFaces}  conf=${"%.2f".format(metrics.confidence)}  logs=${logs.size}",
                 style = MaterialTheme.typography.titleMedium
             )
 
+            // Calibration status
             when (calibState.phase) {
                 AttentionEstimatorWithCalibration.Phase.IDLE -> {
-                    Button(onClick = {
-                        audienceAnalyzer.startCalibration()
-                        calibState = audienceAnalyzer.getCalibrationState()
-                    }) { Text("Start Calibration (10s)") }
-                    Text(
-                        text = "Press once when you start speaking.",
-                        style = MaterialTheme.typography.bodyMedium
-                    )
+                    Text("Calibration: IDLE", style = MaterialTheme.typography.bodyMedium)
                 }
-
                 AttentionEstimatorWithCalibration.Phase.CALIBRATING -> {
                     val secLeft = ceil(calibState.remainingMs / 1000.0).toInt().coerceAtLeast(0)
-                    Text(
-                        text = "Calibrating... ${secLeft}s",
-                        style = MaterialTheme.typography.titleMedium
-                    )
+                    Text("Calibration: CALIBRATING... ${secLeft}s", style = MaterialTheme.typography.bodyMedium)
                 }
-
                 AttentionEstimatorWithCalibration.Phase.RUNNING -> {
-                    Text(
-                        text = "Running",
-                        style = MaterialTheme.typography.titleMedium
-                    )
+                    Text("Calibration: RUNNING", style = MaterialTheme.typography.bodyMedium)
                 }
             }
 
-            Text(text = statusText, style = MaterialTheme.typography.bodyMedium)
+            Text(text = statusText, style = MaterialTheme.typography.bodySmall)
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            // Session controls
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+
+                Button(
+                    enabled = !sessionRunning,
+                    onClick = {
+                        // start session = clear logs + start calibration + start recording (if available)
+                        logs.clear()
+                        lastJsonUri = null
+                        lastVideoUri = null
+                        pendingShare = false
+
+                        audienceAnalyzer.startCalibration()
+                        calibState = audienceAnalyzer.getCalibrationState()
+                        sessionRunning = true
+
+                        if (frontRecordingAvailable) {
+                            recording = startFrontRecording(
+                                context = context,
+                                videoCapture = videoCapture,
+                                onFinalize = { uri ->
+                                    lastVideoUri = uri
+                                }
+                            )
+                        }
+                    }
+                ) { Text(if (frontRecordingAvailable) "Start Session (Rec+Log)" else "Start Session (Log)") }
+
+                Button(
+                    enabled = sessionRunning,
+                    onClick = {
+                        sessionRunning = false
+
+                        // stop recording if exists
+                        recording?.stop()
+                        recording = null
+
+                        // save json now
+                        lastJsonUri = writeLogsToJson(context, logs.toList())
+
+                        // if video exists later, auto-share both
+                        pendingShare = true
+
+                        // if front recording wasn't available, share json only
+                        if (!frontRecordingAvailable) {
+                            shareFiles(context, listOf(lastJsonUri!!))
+                            pendingShare = false
+                        }
+                    }
+                ) { Text("Stop + Export") }
+            }
         }
     }
 }
 
+private fun startFrontRecording(
+    context: Context,
+    videoCapture: VideoCapture<Recorder>,
+    onFinalize: (Uri) -> Unit
+): Recording {
+    val name = "presenter_${System.currentTimeMillis()}.mp4"
+
+    val values = ContentValues().apply {
+        put(MediaStore.MediaColumns.DISPLAY_NAME, name)
+        put(MediaStore.MediaColumns.MIME_TYPE, "video/mp4")
+        put(MediaStore.MediaColumns.RELATIVE_PATH, "Movies/AudienceAttention")
+    }
+
+    val outputOptions = MediaStoreOutputOptions.Builder(
+        context.contentResolver,
+        MediaStore.Video.Media.EXTERNAL_CONTENT_URI
+    ).setContentValues(values).build()
+
+    // NOTE: 오디오까지 원하면 .withAudioEnabled() 를 켜고 RECORD_AUDIO 권한 필요
+    return videoCapture.output
+        .prepareRecording(context, outputOptions)
+        .withAudioEnabled()
+        .start(ContextCompat.getMainExecutor(context)) { event ->
+            when (event) {
+                is VideoRecordEvent.Finalize -> {
+                    if (!event.hasError()) {
+                        onFinalize(event.outputResults.outputUri)
+                    }
+                }
+            }
+        }
+}
+
+/* =====================  Video + JSON I/O ===================== */
+private fun writeLogsToJson(context: Context, logs: List<AttentionLogEntry>): Uri {
+    val arr = org.json.JSONArray()
+    logs.forEach { e ->
+        arr.put(
+            org.json.JSONObject().apply {
+                put("tsMs", e.tsMs)
+                put("score100_1min", e.score1min)
+                put("faces", e.faces)
+                put("confidence", e.confidence)
+            }
+        )
+    }
+
+    val jsonBytes = arr.toString(2).toByteArray()
+
+    return if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+        // ===== API 29+ : MediaStore Downloads =====
+        val name = "attention_${System.currentTimeMillis()}.json"
+        val values = ContentValues().apply {
+            put(MediaStore.MediaColumns.DISPLAY_NAME, name)
+            put(MediaStore.MediaColumns.MIME_TYPE, "application/json")
+            put(MediaStore.MediaColumns.RELATIVE_PATH, "Download/AudienceAttention")
+        }
+
+        val uri = context.contentResolver.insert(
+            MediaStore.Downloads.EXTERNAL_CONTENT_URI,
+            values
+        ) ?: error("Failed to create JSON file")
+
+        context.contentResolver.openOutputStream(uri)?.use { os ->
+            os.write(jsonBytes)
+        }
+        uri
+
+    } else {
+        // ===== API 26~28 : app-specific external storage =====
+        val dir = context.getExternalFilesDir(null)
+            ?: error("External storage not available")
+
+        val file = java.io.File(
+            dir,
+            "attention_${System.currentTimeMillis()}.json"
+        )
+
+        file.outputStream().use { it.write(jsonBytes) }
+
+        // FileProvider 없이도 ACTION_SEND 가능 (같은 앱 내부 URI)
+        androidx.core.content.FileProvider.getUriForFile(
+            context,
+            "${context.packageName}.fileprovider",
+            file
+        )
+    }
+}
+
+private fun shareFiles(context: Context, uris: List<Uri>) {
+    val intent = Intent(Intent.ACTION_SEND_MULTIPLE).apply {
+        type = "*/*"
+        putParcelableArrayListExtra(Intent.EXTRA_STREAM, ArrayList(uris))
+        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    }
+    context.startActivity(Intent.createChooser(intent, "Export files"))
+}
+
 /* =====================  Vision + Scoring Core ===================== */
+data class AttentionLogEntry(
+    val tsMs: Long,
+    val score1min: Int,
+    val faces: Int,
+    val confidence: Float
+)
 
 data class CrowdMetrics(
     val score1min: Int,
@@ -260,7 +536,7 @@ data class PersonState(
 
 data class FaceOverlay(
     val id: Int,
-    val bbox: Rect,     // ML Kit boundingBox (image coords)
+    val bbox: android.graphics.Rect,     // ML Kit boundingBox (image coords)
     val score100: Int,  // 0..100
     val quality: Float, // optional debug
     val imgW: Int,
@@ -274,7 +550,7 @@ class AudienceAnalyzer {
             .setPerformanceMode(FaceDetectorOptions.PERFORMANCE_MODE_ACCURATE)
             .setClassificationMode(FaceDetectorOptions.CLASSIFICATION_MODE_ALL)
             .enableTracking()
-            .setMinFaceSize(0.08f)
+            .setMinFaceSize(0.02f)
             .build()
     )
 
@@ -285,13 +561,13 @@ class AudienceAnalyzer {
     fun startCalibration() {
         estimator.startCalibration(System.currentTimeMillis())
     }
-
     fun getCalibrationState(): AttentionEstimatorWithCalibration.CalibrationState {
         return estimator.getCalibrationState(System.currentTimeMillis())
     }
+
     @ExperimentalGetImage
     fun analyze(
-        imageProxy: ImageProxy,
+        imageProxy: androidx.camera.core.ImageProxy,
         onResult: (CrowdMetrics, List<FaceOverlay>) -> Unit) {
         if (!inFlight.compareAndSet(false, true)) {
             imageProxy.close()
