@@ -118,7 +118,7 @@ A session produces an array of minute-level samples:
 ---
 ## 🎤 Feedback from the PC
 
-# 📁 Project Structure
+## 📁 Project Structure
 
 ```
 
@@ -136,11 +136,11 @@ A session produces an array of minute-level samples:
 
 ---
 
-# 📱 Phone Output Format
+## 📱 Phone Output Format
 
 After the presentation ends, the phone sends:
 
-## 1️⃣ Full Video
+### 1️⃣ Full Video
 
 ```
 
@@ -148,7 +148,7 @@ presentation_whole.mp4
 
 ```
 
-## 2️⃣ Attention Logs
+### 2️⃣ Attention Logs
 
 ```
 
